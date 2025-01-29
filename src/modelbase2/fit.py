@@ -27,6 +27,8 @@ __all__ = [
     "ResidualFn",
     "SteadyStateResidualFn",
     "TimeSeriesResidualFn",
+    "rmse_ss",
+    "rmse_tc",
     "steady_state",
     "time_course",
 ]
@@ -94,6 +96,16 @@ def _default_minimize_fn(
     return dict(zip(p0, np.full(len(p0), np.nan, dtype=float), strict=True))
 
 
+def rmse_ss(data: pd.Series, results: pd.DataFrame) -> float:
+    diff = data - results.loc[:, data.index]
+    return cast(float, np.sqrt(np.mean(np.square(diff))))
+
+
+def rmse_tc(data: pd.DataFrame, results: pd.DataFrame) -> float:
+    diff = data - results.loc[:, data.columns]
+    return cast(float, np.sqrt(np.mean(np.square(diff))))
+
+
 def _steady_state_residual(
     par_values: Array,
     # This will be filled out by partial
@@ -102,6 +114,7 @@ def _steady_state_residual(
     model: Model,
     y0: dict[str, float] | None,
     integrator: type[IntegratorProtocol],
+    likelihood: Callable,
 ) -> float:
     """Calculate residual error between model steady state and experimental data.
 
@@ -137,8 +150,7 @@ def _steady_state_residual(
     if c_ss is None or v_ss is None:
         return cast(float, np.inf)
     results_ss = pd.concat((c_ss, v_ss), axis=1)
-    diff = data - results_ss.loc[:, data.index]  # type: ignore
-    return cast(float, np.sqrt(np.mean(np.square(diff))))
+    return likelihood(data, results_ss)
 
 
 def _time_course_residual(
@@ -149,6 +161,7 @@ def _time_course_residual(
     model: Model,
     y0: dict[str, float],
     integrator: type[IntegratorProtocol],
+    likelihood: Callable,
 ) -> float:
     """Calculate residual error between model time course and experimental data.
 
@@ -176,8 +189,7 @@ def _time_course_residual(
     if c_ss is None or v_ss is None:
         return cast(float, np.inf)
     results_ss = pd.concat((c_ss, v_ss), axis=1)
-    diff = data - results_ss.loc[:, data.columns]  # type: ignore
-    return cast(float, np.sqrt(np.mean(np.square(diff))))
+    return likelihood(data, results_ss)
 
 
 def steady_state(
@@ -188,6 +200,7 @@ def steady_state(
     minimize_fn: MinimizeFn = _default_minimize_fn,
     residual_fn: SteadyStateResidualFn = _steady_state_residual,
     integrator: type[IntegratorProtocol] = DefaultIntegrator,
+    likelihood: Callable = rmse_ss,
 ) -> dict[str, float]:
     """Fit model parameters to steady-state experimental data.
 
@@ -225,6 +238,7 @@ def steady_state(
             y0=y0,
             par_names=par_names,
             integrator=integrator,
+            likelihood=likelihood,
         ),
     )
     res = minimize_fn(fn, p0)
@@ -242,6 +256,7 @@ def time_course(
     minimize_fn: MinimizeFn = _default_minimize_fn,
     residual_fn: TimeSeriesResidualFn = _time_course_residual,
     integrator: type[IntegratorProtocol] = DefaultIntegrator,
+    likelihood: Callable = rmse_tc,
 ) -> dict[str, float]:
     """Fit model parameters to time course of experimental data.
 
@@ -277,6 +292,7 @@ def time_course(
             y0=y0,
             par_names=par_names,
             integrator=integrator,
+            likelihood=likelihood,
         ),
     )
     res = minimize_fn(fn, p0)
